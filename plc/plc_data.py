@@ -65,6 +65,11 @@ class NormalizedPLCData:
     scan_time_ms: float = 0.0
     error_message: Optional[str] = None
 
+    @property
+    def is_connected(self) -> bool:
+        """Alias for self.connected."""
+        return self.connected
+
     def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
         """
         Export normalized dictionary matching the project specifications.

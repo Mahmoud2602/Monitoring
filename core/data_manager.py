@@ -19,7 +19,7 @@ from database.models import (
     ProductionDataRecord,
     StationStatusRecord,
 )
-from database.query_service import HistoricalQueryService, get_production_date
+from database.query_service import HistoricalQueryService
 from database.repositories import (
     AlarmRepository,
     DailySummaryRepository,
@@ -32,6 +32,7 @@ from kpi.kpi_engine import KPIEngine
 from kpi.models import HourlyProductionRecord, KPISnapshot
 from kpi.tact_time import SpeedScalingConfig
 from plc.base_driver import BasePLCDriver
+from plc.ethernet_driver import EthernetPLCDriver
 from plc.plc_client import PLCClient
 from plc.plc_data import NormalizedPLCData, PLCMappingConfig
 from plc.simulated_driver import SimulatedPLCDriver
@@ -53,6 +54,7 @@ class DataManager:
         mapping_path: str = "config/plc_mapping.json",
         custom_driver: Optional[BasePLCDriver] = None,
         db_path: Optional[str] = None,
+        simulation_mode: Optional[bool] = None,
     ) -> None:
         self.settings_path = settings_path
         self.mapping_path = mapping_path
@@ -64,7 +66,10 @@ class DataManager:
         # 2. Extract PLC & Polling settings
         plc_cfg = self.settings.get("plc", {})
         polling_cfg = self.settings.get("polling", {})
-        self.simulation_mode: bool = bool(self.settings.get("simulation_mode", True))
+        if simulation_mode is not None:
+            self.simulation_mode = bool(simulation_mode)
+        else:
+            self.simulation_mode = bool(self.settings.get("simulation_mode", True))
         self.cycle_time_ms: int = int(polling_cfg.get("cycle_time_ms", 500))
         self.plc_ip: str = str(plc_cfg.get("ip_address", "192.168.1.10"))
         self.plc_port: int = int(plc_cfg.get("port", 502))
@@ -86,11 +91,13 @@ class DataManager:
             )
             logger.info("Operating in SIMULATION MODE with SimulatedPLCDriver.")
         else:
-            logger.info("Operating in REAL PLC MODE targeting %s:%d", self.plc_ip, self.plc_port)
-            self.driver = SimulatedPLCDriver(
+            logger.info("Operating in REAL PLC HARDWARE MODE targeting %s:%d", self.plc_ip, self.plc_port)
+            driver_params = plc_cfg.get("driver_params", {})
+            self.driver = EthernetPLCDriver(
                 host=self.plc_ip,
                 port=self.plc_port,
                 timeout=self.timeout_sec,
+                driver_params=driver_params,
             )
 
         # 4. Instantiate Isolated PLC Client
@@ -152,6 +159,14 @@ class DataManager:
         # Auto-persist finalized hour records to database
         self.kpi_engine.register_hour_finalized_listener(self._on_hour_finalized)
 
+        # Hydrate KPI engine with today's completed production hours from database
+        try:
+            from core.production_day import get_production_date
+            current_prod_date = get_production_date(self.production_day_start)
+            self.kpi_engine.hydrate_from_database(self.prod_repo, current_prod_date)
+        except Exception as exc:
+            logger.warning("Could not hydrate KPI engine on startup: %s", exc)
+
         # 7. Internal cache and listeners
         self._external_listeners: List[Callable[[NormalizedPLCData], None]] = []
         self._kpi_listeners: List[Callable[[KPISnapshot], None]] = []
@@ -181,7 +196,9 @@ class DataManager:
             logger.error("Error processing telemetry in KPI engine: %s", exc)
 
         # Step 2: Historical Downtime and Station Status event detection (Phase 3)
-        if snapshot:
+        # CRITICAL STABILIZATION: Only record machine downtime if PLC is actively CONNECTED.
+        # Communication drops or disconnects must NEVER be treated as machine stoppage!
+        if snapshot and data.is_connected and data.connection_state.value == "CONNECTED":
             try:
                 station_states: Dict[int, Tuple[str, str, bool]] = {}
                 for sid in range(1, 11):

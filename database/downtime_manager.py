@@ -285,6 +285,8 @@ class DowntimeManager:
         with self._lock:
             return list(self._active_events.values())
 
+    get_active_downtime_events = get_active_events
+
     def is_station_stopped(self, station_id: int) -> bool:
         with self._lock:
             return station_id in self._active_events
@@ -314,5 +316,5 @@ class DowntimeManager:
         Resolve industrial production date based on configurable shift start (e.g. "08:00").
         If time is before day start, date belongs to previous calendar day.
         """
-        from database.query_service import get_production_date
+        from core.production_day import get_production_date
         return get_production_date(dt, self.production_day_start)

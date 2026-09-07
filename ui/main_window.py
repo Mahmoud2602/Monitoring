@@ -22,8 +22,10 @@ from database.models import AlarmEventRecord
 from kpi.models import KPISnapshot
 from plc.plc_data import NormalizedPLCData
 from ui.dashboard.dashboard_page import DashboardPage
+from ui.historical.historical_page import HistoricalPage
 from ui.theme import IndustrialTheme, get_application_stylesheet
 from ui.widgets.header_bar import HeaderBar
+from ui.widgets.navigation_bar import NavigationBar
 from ui.worker import TelemetryBridge
 from utils.logger import get_logger
 
@@ -92,7 +94,12 @@ class MainWindow(QMainWindow):
         )
         main_layout.addWidget(self.header_bar)
 
-        # 2. Main Stack / Content View
+        # 2. Control Room Navigation Bar (Phase 5)
+        self.nav_bar = NavigationBar(parent=central_widget)
+        self.nav_bar.page_selected.connect(self._on_navigation_changed)
+        main_layout.addWidget(self.nav_bar)
+
+        # 3. Main Stack / Content View
         self.stack = QStackedWidget(central_widget)
         self.dashboard_page = DashboardPage(
             line_name=self.line_name,
@@ -102,6 +109,14 @@ class MainWindow(QMainWindow):
             parent=self.stack,
         )
         self.stack.addWidget(self.dashboard_page)
+
+        # 4. Historical Analysis Page (Phase 5)
+        self.historical_page = HistoricalPage(
+            data_manager=self.data_manager,
+            parent=self.stack,
+        )
+        self.stack.addWidget(self.historical_page)
+
         main_layout.addWidget(self.stack, stretch=1)
 
         self.setCentralWidget(central_widget)
@@ -181,6 +196,15 @@ class MainWindow(QMainWindow):
     def _on_error(self, err_msg: str) -> None:
         """Log background errors safely."""
         logger.warning("Background worker reported error: %s", err_msg)
+
+    def _on_navigation_changed(self, page_name: str, index: int) -> None:
+        """Switch views in the main stack widget."""
+        if index < self.stack.count():
+            logger.info("Navigation switch to page '%s' (index %d)", page_name, index)
+            self.stack.setCurrentIndex(index)
+            if index == 1:
+                # Refresh historical analysis view on navigation
+                self.historical_page.refresh_data()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Gracefully terminate background threads on window exit."""

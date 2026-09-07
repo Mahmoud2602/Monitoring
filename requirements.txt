@@ -3,8 +3,10 @@
 # Core Architecture & Simulation: Zero external dependencies!
 # Uses Python 3.8+ Standard Library (dataclasses, typing, json, logging, threading, unittest).
 
-# Desktop GUI (Phase 4 Native Industrial Dashboard):
+# Desktop GUI (Phase 4 Native Industrial Dashboard & Phase 5 Charts):
 PySide6>=6.5.0
+pyqtgraph>=0.13.0
+numpy>=1.22.0
 
 # Optional / Recommended Testing Tools:
 pytest>=7.4.0

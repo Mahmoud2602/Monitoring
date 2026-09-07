@@ -167,24 +167,73 @@ class KPIEngine:
             return 0.0
         return round((float(cumulative_actual) / float(cumulative_target)) * 100.0, 2)
 
+    def hydrate_from_database(self, prod_repo: Any, production_date: str) -> None:
+        """
+        Hydrate today's completed hours and daily production from SQLite on application startup.
+        Ensures today's production is not reset or lost when the application restarts.
+        """
+        with self._lock:
+            try:
+                records = prod_repo.get_by_date(production_date)
+                if records:
+                    self._completed_hours = [
+                        HourlyProductionRecord(
+                            date=r.production_date,
+                            hour_start=r.hour_start,
+                            hour_end=r.hour_end,
+                            hourly_target=r.hourly_target,
+                            actual_production=r.actual_production,
+                            hourly_achievement_percent=r.hourly_achievement_percent,
+                            cumulative_target=r.cumulative_target,
+                            cumulative_actual=r.cumulative_actual,
+                            cumulative_achievement_percent=r.cumulative_achievement_percent,
+                            tact_time=r.tact_time or 0.0,
+                            average_speed=r.average_speed,
+                        )
+                        for r in records
+                    ]
+                    logger.info(
+                        "Hydrated %d completed hourly record(s) from database for production date %s",
+                        len(records),
+                        production_date,
+                    )
+            except Exception as exc:
+                logger.warning("Could not hydrate completed hours from database: %s", exc)
+
     def calculate_counter_delta(self, previous_counter: int, current_counter: int) -> int:
         """
         Calculate production increment between successive counter readings.
         Handles safe counter reset / rollover:
-        If current_counter < previous_counter, treats it as a reset where production
-        during the tick equals current_counter (or 0 if current_counter == 0).
+        - Normal increment: current_counter >= previous_counter -> diff
+        - 16-bit unsigned rollover (65535 -> small number)
+        - 15-bit signed rollover (32767 -> small number)
+        - 4-digit BCD / decimal rollover (9999 -> small number)
+        - Arbitrary reset (shift change, maintenance reset to 0 or small number)
         Guarantees that negative production is NEVER returned.
         """
         if current_counter >= previous_counter:
             return current_counter - previous_counter
+
+        # Rollover / Reset detected
+        # Check standard rollover boundaries
+        if previous_counter > 64000 and current_counter < 2000:
+            rollover_delta = (65535 - previous_counter) + current_counter + 1
+            logger.info("16-bit counter rollover detected: %d -> %d (Delta: %d)", previous_counter, current_counter, rollover_delta)
+            return max(0, rollover_delta)
+        elif previous_counter > 31500 and current_counter < 1500:
+            rollover_delta = (32767 - previous_counter) + current_counter + 1
+            logger.info("32767 counter rollover detected: %d -> %d (Delta: %d)", previous_counter, current_counter, rollover_delta)
+            return max(0, rollover_delta)
+        elif previous_counter > 9800 and current_counter < 200:
+            rollover_delta = (9999 - previous_counter) + current_counter + 1
+            logger.info("9999 counter rollover detected: %d -> %d (Delta: %d)", previous_counter, current_counter, rollover_delta)
+            return max(0, rollover_delta)
         else:
-            # Counter reset / rollover event detected!
             logger.warning(
                 "Production counter reset/rollover detected! (Prev: %d -> Curr: %d). Handling safely.",
                 previous_counter,
                 current_counter,
             )
-            # Safe reset handling: parts produced since reset = current_counter
             return max(0, current_counter)
 
     # -------------------------------------------------------------------------
@@ -253,20 +302,22 @@ class KPIEngine:
         and generates an immutable KPISnapshot. Non-blocking and thread-safe.
         """
         with self._lock:
-            # 1. Parse current timestamp & hour bucket
+            # 1. Parse current timestamp & hour bucket using authoritative production day
             dt = override_timestamp or self._parse_iso_or_now(data.timestamp)
-            date_str = dt.strftime("%Y-%m-%d")
+            from core.production_day import get_production_date
+            prod_date_str = get_production_date(dt, self.production_day_start)
             hour_int = dt.hour
             hour_start_str = f"{hour_int:02d}:00"
             hour_end_str = f"{(hour_int + 1) % 24:02d}:00"
-            hour_key = f"{date_str}_{hour_int:02d}"
+            hour_key = f"{prod_date_str}_{hour_int:02d}"
 
             # 2. Update speed and physical parameters
             raw_speed = float(data.speed)
             eng_speed = self.speed_config.raw_to_engineering(raw_speed)
             self._last_engineering_speed = eng_speed
             self._speed_samples.append(eng_speed)
-            self._daily_target = int(data.daily_target)
+            if data.daily_target > 0:
+                self._daily_target = int(data.daily_target)
 
             # 3. Evaluate Station & Line Status
             raw_bits: Dict[str, bool] = dict(data.stations)
@@ -276,10 +327,11 @@ class KPIEngine:
             if self._current_hour_key is None:
                 # Initialization tick
                 self._current_hour_key = hour_key
-                self._current_date = date_str
+                self._current_date = prod_date_str
                 self._current_hour_label = hour_start_str
                 self._hour_start_counter = data.production_counter
-                self._last_counter = data.production_counter
+                if data.is_connected and data.connection_state.value == "CONNECTED":
+                    self._last_counter = data.production_counter
                 self._hour_accumulated_production = 0
             elif hour_key != self._current_hour_key:
                 # Completed an hour! Finalize previous hour
@@ -290,18 +342,23 @@ class KPIEngine:
                 )
                 # Initialize new hour
                 self._current_hour_key = hour_key
-                self._current_date = date_str
+                self._current_date = prod_date_str
                 self._current_hour_label = hour_start_str
                 self._hour_start_counter = data.production_counter
                 self._hour_accumulated_production = 0
                 self._speed_samples = [eng_speed]
 
-            # 5. Process Production Counter Delta
-            curr_counter = int(data.production_counter)
-            if self._last_counter is not None:
-                delta = self.calculate_counter_delta(self._last_counter, curr_counter)
-                self._hour_accumulated_production += delta
-            self._last_counter = curr_counter
+            # 5. Process Production Counter Delta safely
+            # Only accumulate production if the PLC is actively connected
+            is_connected = data.is_connected and (data.connection_state.value == "CONNECTED")
+            if is_connected:
+                curr_counter = int(data.production_counter)
+                if self._last_counter is not None:
+                    delta = self.calculate_counter_delta(self._last_counter, curr_counter)
+                    self._hour_accumulated_production += delta
+                self._last_counter = curr_counter
+            else:
+                curr_counter = self._last_counter if self._last_counter is not None else int(data.production_counter)
 
             # 6. Derive Tact Time and Hourly Target
             tact_time = self.tact_calculator.calculate_tact_time_from_speed(eng_speed)
@@ -311,13 +368,17 @@ class KPIEngine:
             actual_hour_prod = self._hour_accumulated_production
             hourly_achieve = self.calculate_hourly_achievement(actual_hour_prod, hourly_target)
 
-            # Cumulative values including completed hours + current progress
-            completed_cum_target = sum(h.hourly_target for h in self._completed_hours)
-            completed_cum_actual = sum(h.actual_production for h in self._completed_hours)
+            # Cumulative values strictly scoped to the CURRENT production day
+            today_completed = [h for h in self._completed_hours if h.date == prod_date_str]
+            completed_cum_target = sum(h.hourly_target for h in today_completed)
+            completed_cum_actual = sum(h.actual_production for h in today_completed)
 
             cum_target = completed_cum_target + hourly_target
             cum_actual = completed_cum_actual + actual_hour_prod
             cum_achieve = self.calculate_cumulative_achievement(cum_actual, cum_target)
+
+            daily_target = self._daily_target if self._daily_target > 0 else 1000
+            daily_achieve = self.calculate_cumulative_achievement(cum_actual, daily_target)
 
             avg_speed = (
                 sum(self._speed_samples) / len(self._speed_samples)
@@ -326,7 +387,7 @@ class KPIEngine:
             )
 
             current_hour_record = HourlyProductionRecord(
-                date=date_str,
+                date=prod_date_str,
                 hour_start=hour_start_str,
                 hour_end=hour_end_str,
                 hourly_target=hourly_target,
@@ -351,7 +412,9 @@ class KPIEngine:
                 target_production_rate=self.target_production_rate,
                 tact_time_seconds=tact_time,
                 production_counter_raw=curr_counter,
-                daily_target=self._daily_target,
+                daily_target=daily_target,
+                daily_production=cum_actual,
+                daily_achievement_percent=daily_achieve,
                 engineering_speed=eng_speed,
                 speed_unit=self.speed_config.engineering_unit,
             )
@@ -364,9 +427,10 @@ class KPIEngine:
         target_prod = self.target_production_rate
         achieve_pct = self.calculate_hourly_achievement(actual_prod, target_prod)
 
-        # Cumulative totals across completed hours
-        prev_cum_target = sum(h.hourly_target for h in self._completed_hours)
-        prev_cum_actual = sum(h.actual_production for h in self._completed_hours)
+        # Cumulative totals scoped to the date of this completed hour
+        today_completed = [h for h in self._completed_hours if h.date == date_str]
+        prev_cum_target = sum(h.hourly_target for h in today_completed)
+        prev_cum_actual = sum(h.actual_production for h in today_completed)
 
         new_cum_target = prev_cum_target + target_prod
         new_cum_actual = prev_cum_actual + actual_prod

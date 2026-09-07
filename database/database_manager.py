@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS downtime_events (
 
 CREATE INDEX IF NOT EXISTS idx_downtime_date ON downtime_events(production_date);
 CREATE INDEX IF NOT EXISTS idx_downtime_station ON downtime_events(station_id);
+CREATE INDEX IF NOT EXISTS idx_downtime_date_station ON downtime_events(production_date, station_id);
 CREATE INDEX IF NOT EXISTS idx_downtime_start ON downtime_events(start_time);
 CREATE INDEX IF NOT EXISTS idx_downtime_open ON downtime_events(station_id, end_time);
 
@@ -76,6 +77,8 @@ CREATE TABLE IF NOT EXISTS alarm_events (
 CREATE INDEX IF NOT EXISTS idx_alarm_date ON alarm_events(production_date);
 CREATE INDEX IF NOT EXISTS idx_alarm_active ON alarm_events(active);
 CREATE INDEX IF NOT EXISTS idx_alarm_station ON alarm_events(station_id);
+CREATE INDEX IF NOT EXISTS idx_alarm_date_station ON alarm_events(production_date, station_id);
+CREATE INDEX IF NOT EXISTS idx_alarm_date_severity ON alarm_events(production_date, severity);
 
 -- 4. station_status: Meaningful state transitions (RUNNING <-> STOPPED)
 CREATE TABLE IF NOT EXISTS station_status (

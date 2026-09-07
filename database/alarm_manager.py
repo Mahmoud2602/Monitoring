@@ -102,7 +102,7 @@ class AlarmManager:
         now = timestamp or datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
-        from database.query_service import get_production_date
+        from core.production_day import get_production_date
         prod_date = production_date or get_production_date(now, self.production_day_start)
 
         key = (alarm_code, station_id)

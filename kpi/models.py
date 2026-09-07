@@ -133,6 +133,8 @@ class KPISnapshot:
     daily_target: int
     engineering_speed: float
     speed_unit: str = "m/min"
+    daily_production: int = 0
+    daily_achievement_percent: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -149,6 +151,8 @@ class KPISnapshot:
             "tact_time_seconds": round(self.tact_time_seconds, 2),
             "production_counter_raw": int(self.production_counter_raw),
             "daily_target": int(self.daily_target),
+            "daily_production": int(self.daily_production),
+            "daily_achievement_percent": round(self.daily_achievement_percent, 2),
             "engineering_speed": round(self.engineering_speed, 2),
             "speed_unit": self.speed_unit,
         }
