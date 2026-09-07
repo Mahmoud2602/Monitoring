@@ -1,0 +1,62 @@
+{
+  "assembly_line": {
+    "name": "Assembly Line",
+    "production_day_start": "08:00",
+    "target_rate_pcs_per_hour": 100.0,
+    "product_pitch_meters": 0.75,
+    "speed_scaling": {
+      "raw_address": "D450",
+      "scale_factor": 1.0,
+      "engineering_unit": "m/min"
+    }
+  },
+  "station_display_names": {
+    "1": "Assembly 1",
+    "2": "Screw Installation",
+    "3": "Inspection",
+    "4": "Riveting",
+    "5": "Transfer 1",
+    "6": "Component Insertion",
+    "7": "Optical Inspection",
+    "8": "Laser Marking",
+    "9": "Cleaning",
+    "10": "Unloading"
+  },
+  "plc": {
+    "ip_address": "192.168.1.10",
+    "port": 502,
+    "timeout_seconds": 2.0,
+    "retry_interval_seconds": 3.0,
+    "max_retries": 5
+  },
+  "polling": {
+    "cycle_time_ms": 500
+  },
+  "simulation_mode": true,
+  "simulation_settings": {
+    "base_speed": 45.0,
+    "speed_fluctuation": 1.5,
+    "daily_target": 1000,
+    "initial_counter": 1280,
+    "station_stop_probability": 0.08,
+    "station_stop_duration_cycles": 6
+  },
+  "logging": {
+    "level": "INFO",
+    "log_to_file": false,
+    "log_file_path": "logs/plc_monitor.log"
+  },
+  "database": {
+    "db_path": "production_monitor.db",
+    "enable_wal": true,
+    "auto_persist_hourly": true,
+    "auto_persist_status_transitions": true
+  },
+  "gui_settings": {
+    "window_title": "Industrial Real-Time Production Monitor",
+    "refresh_interval_ms": 500,
+    "company_logo_path": "assets/company_logo.png",
+    "customer_logo_path": "assets/customer_logo.png",
+    "theme": "dark_industrial"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "registers": {
+    "speed": {
+      "address": "D450",
+      "description": "Line Speed",
+      "type": "FLOAT",
+      "scale": 1.0,
+      "unit": "m/min"
+    },
+    "speed_setpoint": {
+      "address": "D451",
+      "description": "Speed Setpoint",
+      "type": "FLOAT",
+      "scale": 1.0,
+      "unit": "m/min"
+    },
+    "production_counter": {
+      "address": "D452",
+      "description": "Production Counter",
+      "type": "INT",
+      "scale": 1.0,
+      "unit": "pcs"
+    },
+    "daily_target": {
+      "address": "D453",
+      "description": "Daily Production Target",
+      "type": "INT",
+      "scale": 1.0,
+      "unit": "pcs"
+    }
+  },
+  "stations": {
+    "conv1_station1": {
+      "address": "M550",
+      "conveyor": "Conveyor 1",
+      "station_index": 1,
+      "description": "Conveyor 1 - Station 1 Status"
+    },
+    "conv1_station2": {
+      "address": "M551",
+      "conveyor": "Conveyor 1",
+      "station_index": 2,
+      "description": "Conveyor 1 - Station 2 Status"
+    },
+    "conv1_station3": {
+      "address": "M552",
+      "conveyor": "Conveyor 1",
+      "station_index": 3,
+      "description": "Conveyor 1 - Station 3 Status"
+    },
+    "conv1_station4": {
+      "address": "M553",
+      "conveyor": "Conveyor 1",
+      "station_index": 4,
+      "description": "Conveyor 1 - Station 4 Status"
+    },
+    "conv1_station5": {
+      "address": "M554",
+      "conveyor": "Conveyor 1",
+      "station_index": 5,
+      "description": "Conveyor 1 - Station 5 Status"
+    },
+    "conv2_station1": {
+      "address": "M555",
+      "conveyor": "Conveyor 2",
+      "station_index": 1,
+      "description": "Conveyor 2 - Station 1 Status"
+    },
+    "conv2_station2": {
+      "address": "M556",
+      "conveyor": "Conveyor 2",
+      "station_index": 2,
+      "description": "Conveyor 2 - Station 2 Status"
+    },
+    "conv2_station3": {
+      "address": "M557",
+      "conveyor": "Conveyor 2",
+      "station_index": 3,
+      "description": "Conveyor 2 - Station 3 Status"
+    },
+    "conv2_station4": {
+      "address": "M558",
+      "conveyor": "Conveyor 2",
+      "station_index": 4,
+      "description": "Conveyor 2 - Station 4 Status"
+    },
+    "conv2_station5": {
+      "address": "M559",
+      "conveyor": "Conveyor 2",
+      "station_index": 5,
+      "description": "Conveyor 2 - Station 5 Status"
+    }
+  }
+}

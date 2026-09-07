@@ -1,0 +1,6 @@
+{
+  "name": "Industrial Real-Time Production Monitor",
+  "description": "Industrial real-time production monitoring data layer, PLC communication, and Production Data & KPI Engine in Python.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

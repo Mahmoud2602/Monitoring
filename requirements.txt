@@ -1,0 +1,25 @@
+# Industrial Real-Time Production Monitor - Requirements
+# --------------------------------------------------------
+# Core Architecture & Simulation: Zero external dependencies!
+# Uses Python 3.8+ Standard Library (dataclasses, typing, json, logging, threading, unittest).
+
+# Desktop GUI (Phase 4 Native Industrial Dashboard):
+PySide6>=6.5.0
+
+# Optional / Recommended Testing Tools:
+pytest>=7.4.0
+
+# Optional Real PLC Hardware Protocol Drivers:
+# Install ONLY the package matching your specific industrial PLC brand:
+#
+# 1. Modbus TCP (Universal industrial Ethernet standard: Schneider, WAGO, Delta, etc.)
+# pymodbus>=3.5.0
+#
+# 2. Mitsubishi MELSEC (Q-Series, L-Series, iQ-R, FX5U via MC Protocol / SLMP)
+# pymcprotocol>=0.5.0
+#
+# 3. Siemens SIMATIC (S7-300, S7-400, S7-1200, S7-1500)
+# python-snap7>=1.3
+#
+# 4. Rockwell / Allen-Bradley (ControlLogix, CompactLogix, Micro800 via Ethernet/IP CIP)
+# pycomm3>=1.2.14
