@@ -183,6 +183,38 @@ class DowntimeRepository:
             cursor.close()
             return int(event_id)
 
+    def insert(self, record: DowntimeEventRecord) -> int:
+        """
+        Insert a full DowntimeEventRecord directly into the repository.
+        Supports both in-progress (open) and completed downtime events.
+        """
+        sql = """
+        INSERT INTO downtime_events (
+            station_id, station_name, start_time, end_time, duration_seconds,
+            alarm_id, alarm_message, production_date
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?
+        );
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                sql,
+                (
+                    record.station_id,
+                    record.station_name,
+                    record.start_time,
+                    record.end_time,
+                    record.duration_seconds,
+                    record.alarm_id,
+                    record.alarm_message,
+                    record.production_date,
+                ),
+            )
+            event_id = cursor.lastrowid
+            cursor.close()
+            return int(event_id)
+
     def close_event(self, event_id: int, end_time: str, duration_seconds: float) -> bool:
         """Close an active downtime event with end time and calculated duration."""
         sql = """

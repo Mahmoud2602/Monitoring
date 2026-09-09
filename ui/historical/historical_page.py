@@ -14,7 +14,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from core.data_manager import DataManager
 from database.query_service import DatePreset, HistoricalQueryService
 from ui.historical.charts import (
+    AchievementTrendChart,
     DowntimeTrendChart,
     ProductionTrendChart,
     SpeedTrendChart,
@@ -43,6 +44,108 @@ from ui.theme import IndustrialTheme
 from utils.logger import get_logger
 
 logger = get_logger("ui.historical.page")
+
+
+class HistoricalQueryWorker(QThread):
+    """
+    Background worker thread to execute heavy historical queries without blocking the Qt GUI thread.
+    """
+    data_loaded = Signal(dict)
+    error_occurred = Signal(str)
+
+    def __init__(
+        self,
+        query_service: HistoricalQueryService,
+        preset: str,
+        start_date: Optional[str],
+        end_date: Optional[str],
+        station_id: Optional[int],
+        severity: str,
+        station_names: Dict[str, str],
+        parent: Optional[QObject] = None,
+    ):
+        super().__init__(parent)
+        self.query_service = query_service
+        self.preset = preset
+        self.start_date = start_date
+        self.end_date = end_date
+        self.station_id = station_id
+        self.severity = severity
+        self.station_names = station_names
+
+    def run(self) -> None:
+        try:
+            summary = self.query_service.get_historical_summary(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_id=self.station_id,
+            )
+            prod_trend = self.query_service.get_production_trend(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+            )
+            achieve_trend = self.query_service.get_achievement_trend(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+            )
+            speed_trend = self.query_service.get_speed_trend(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+            )
+            dt_trend = self.query_service.get_downtime_trend(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_id=self.station_id,
+            )
+            st_downtime = self.query_service.get_downtime_by_station_full(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_display_names=self.station_names,
+            )
+            st_stops = self.query_service.get_stop_count_by_station_full(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_display_names=self.station_names,
+            )
+            dt_events = self.query_service.get_downtime_history_table(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_id=self.station_id,
+                station_display_names=self.station_names,
+                limit=500,
+            )
+            alarms = self.query_service.get_alarm_history_table(
+                preset=self.preset,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                station_id=self.station_id,
+                severity=self.severity,
+                station_display_names=self.station_names,
+                limit=500,
+            )
+
+            result = {
+                "summary": summary,
+                "prod_trend": prod_trend,
+                "achieve_trend": achieve_trend,
+                "speed_trend": speed_trend,
+                "dt_trend": dt_trend,
+                "st_downtime": st_downtime,
+                "st_stops": st_stops,
+                "dt_events": dt_events,
+                "alarms": alarms,
+            }
+            self.data_loaded.emit(result)
+        except Exception as e:
+            self.error_occurred.emit(str(e))
 
 
 class HistoricalPage(QWidget):
@@ -68,6 +171,7 @@ class HistoricalPage(QWidget):
         self._current_end_date = ""
         self._current_station_id: Optional[int] = None
         self._current_severity = "All"
+        self._worker: Optional[HistoricalQueryWorker] = None
 
         self._init_ui()
 
@@ -140,49 +244,61 @@ class HistoricalPage(QWidget):
         # 3. Interactive Charts Container (Tabbed to give maximum chart height & legibility)
         self.chart_tabs = QTabWidget(scroll_content)
 
-        # Tab 1: Production & Speed Trends
-        tab_prod_speed = QWidget()
-        t1_layout = QHBoxLayout(tab_prod_speed)
+        # Tab 1: Production & Achievement Trends
+        tab_prod_achieve = QWidget()
+        t1_layout = QHBoxLayout(tab_prod_achieve)
         t1_layout.setContentsMargins(0, 8, 0, 0)
         t1_layout.setSpacing(12)
 
-        self.chart_prod = ProductionTrendChart(tab_prod_speed)
+        self.chart_prod = ProductionTrendChart(tab_prod_achieve)
         self.chart_prod.setMinimumHeight(320)
-        self.chart_speed = SpeedTrendChart(tab_prod_speed)
-        self.chart_speed.setMinimumHeight(320)
+        self.chart_achieve = AchievementTrendChart(tab_prod_achieve)
+        self.chart_achieve.setMinimumHeight(320)
 
         t1_layout.addWidget(self.chart_prod, stretch=1)
-        t1_layout.addWidget(self.chart_speed, stretch=1)
-        self.chart_tabs.addTab(tab_prod_speed, "📈 Production & Conveyor Speed Trends")
+        t1_layout.addWidget(self.chart_achieve, stretch=1)
+        self.chart_tabs.addTab(tab_prod_achieve, "📈 Production & Achievement Trends")
 
-        # Tab 2: Downtime & Bottleneck Trends
-        tab_dt_trends = QWidget()
-        t2_layout = QHBoxLayout(tab_dt_trends)
+        # Tab 2: Conveyor Speed & Process Dynamics
+        tab_speed = QWidget()
+        t2_layout = QHBoxLayout(tab_speed)
         t2_layout.setContentsMargins(0, 8, 0, 0)
         t2_layout.setSpacing(12)
+
+        self.chart_speed = SpeedTrendChart(tab_speed)
+        self.chart_speed.setMinimumHeight(320)
+
+        t2_layout.addWidget(self.chart_speed, stretch=1)
+        self.chart_tabs.addTab(tab_speed, "⚡ Conveyor Speed & Setpoint Dynamics")
+
+        # Tab 3: Downtime & Bottleneck Trends
+        tab_dt_trends = QWidget()
+        t3_layout = QHBoxLayout(tab_dt_trends)
+        t3_layout.setContentsMargins(0, 8, 0, 0)
+        t3_layout.setSpacing(12)
 
         self.chart_dt_trend = DowntimeTrendChart(tab_dt_trends)
         self.chart_dt_trend.setMinimumHeight(320)
         self.chart_st_downtime = StationDowntimeChart(tab_dt_trends)
         self.chart_st_downtime.setMinimumHeight(320)
 
-        t2_layout.addWidget(self.chart_dt_trend, stretch=1)
-        t2_layout.addWidget(self.chart_st_downtime, stretch=1)
+        t3_layout.addWidget(self.chart_dt_trend, stretch=1)
+        t3_layout.addWidget(self.chart_st_downtime, stretch=1)
         self.chart_tabs.addTab(tab_dt_trends, "⏱️ Downtime Timeline & Station Bottlenecks")
 
-        # Tab 3: Complete 10-Station Breakdown
+        # Tab 4: Complete 10-Station Breakdown
         tab_stations = QWidget()
-        t3_layout = QHBoxLayout(tab_stations)
-        t3_layout.setContentsMargins(0, 8, 0, 0)
-        t3_layout.setSpacing(12)
+        t4_layout = QHBoxLayout(tab_stations)
+        t4_layout.setContentsMargins(0, 8, 0, 0)
+        t4_layout.setSpacing(12)
 
         self.chart_st_downtime_clone = StationDowntimeChart(tab_stations)
         self.chart_st_downtime_clone.setMinimumHeight(320)
         self.chart_st_stops = StationStopsChart(tab_stations)
         self.chart_st_stops.setMinimumHeight(320)
 
-        t3_layout.addWidget(self.chart_st_downtime_clone, stretch=1)
-        t3_layout.addWidget(self.chart_st_stops, stretch=1)
+        t4_layout.addWidget(self.chart_st_downtime_clone, stretch=1)
+        t4_layout.addWidget(self.chart_st_stops, stretch=1)
         self.chart_tabs.addTab(tab_stations, "🏭 10-Station Downtime & Stop Frequency")
 
         content_layout.addWidget(self.chart_tabs)
@@ -213,92 +329,72 @@ class HistoricalPage(QWidget):
         self._refresh_alarm_table()
 
     def refresh_data(self) -> None:
-        """Fetch historical datasets from SQLite repository services and update views."""
-        try:
-            preset = self._current_preset
-            s_date = self._current_start_date or None
-            e_date = self._current_end_date or None
-            station_id = self._current_station_id
-            station_names = self.data_manager.kpi_engine.station_display_names
+        """Fetch historical datasets asynchronously in background QThread to avoid GUI blocking."""
+        if self._worker and self._worker.isRunning():
+            self._worker.terminate()
+            self._worker.wait(200)
 
-            # 1. Summary Metrics
-            summary = self.query_service.get_historical_summary(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-                station_id=station_id,
-            )
+        self.filter_bar.lbl_update_time.setText("Querying database...")
+
+        preset = self._current_preset
+        s_date = self._current_start_date or None
+        e_date = self._current_end_date or None
+        station_id = self._current_station_id
+        station_names = self.data_manager.kpi_engine.station_display_names
+
+        self._worker = HistoricalQueryWorker(
+            query_service=self.query_service,
+            preset=preset,
+            start_date=s_date,
+            end_date=e_date,
+            station_id=station_id,
+            severity=self._current_severity,
+            station_names=station_names,
+            parent=self,
+        )
+        self._worker.data_loaded.connect(self._on_data_loaded)
+        self._worker.error_occurred.connect(self._on_worker_error)
+        self._worker.start()
+
+    def _on_data_loaded(self, data: Dict[str, Any]) -> None:
+        """Handle loaded data bundle safely on the GUI thread."""
+        try:
+            summary = data.get("summary", {})
             self.kpi_summary.update_metrics(summary)
 
-            # Update Filter Bar status text
+            station_names = self.data_manager.kpi_engine.station_display_names
+            station_id = self._current_station_id
             st_text = (
                 f"Station {station_id:02d} ({station_names.get(str(station_id)) or station_names.get(station_id) or ''})"
                 if station_id is not None
                 else "All Stations (1 - 10)"
             )
+            range_label = summary.get("date_range_label", "")
             self.filter_bar.set_active_summary_text(
-                f"AUDIT RANGE: {summary['date_range_label']} | TARGET: {st_text}"
+                f"AUDIT RANGE: {range_label} | TARGET: {st_text}"
             )
 
-            # 2. Production Trend
-            prod_trend = self.query_service.get_production_trend(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-            )
-            self.chart_prod.update_data(prod_trend)
+            self.chart_prod.update_data(data.get("prod_trend", []))
+            self.chart_achieve.update_data(data.get("achieve_trend", []))
+            self.chart_speed.update_data(data.get("speed_trend", []))
+            self.chart_dt_trend.update_data(data.get("dt_trend", []))
 
-            # 3. Speed Trend
-            speed_trend = self.query_service.get_speed_trend(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-            )
-            self.chart_speed.update_data(speed_trend)
+            st_dt = data.get("st_downtime", [])
+            self.chart_st_downtime.update_data(st_dt)
+            self.chart_st_downtime_clone.update_data(st_dt)
 
-            # 4. Downtime Trend
-            dt_trend = self.query_service.get_downtime_trend(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-                station_id=station_id,
-            )
-            self.chart_dt_trend.update_data(dt_trend)
+            self.chart_st_stops.update_data(data.get("st_stops", []))
+            self.tables_card.update_downtime_data(data.get("dt_events", []))
+            self.tables_card.update_alarm_data(data.get("alarms", []))
 
-            # 5. Station Breakdown (Stations 1-10)
-            st_downtime = self.query_service.get_downtime_by_station_full(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-                station_display_names=station_names,
-            )
-            self.chart_st_downtime.update_data(st_downtime)
-            self.chart_st_downtime_clone.update_data(st_downtime)
-
-            st_stops = self.query_service.get_stop_count_by_station_full(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-                station_display_names=station_names,
-            )
-            self.chart_st_stops.update_data(st_stops)
-
-            # 6. Downtime History Table
-            dt_events = self.query_service.get_downtime_history_table(
-                preset=preset,
-                start_date=s_date,
-                end_date=e_date,
-                station_id=station_id,
-                station_display_names=station_names,
-                limit=500,
-            )
-            self.tables_card.update_downtime_data(dt_events)
-
-            # 7. Alarm History Table
-            self._refresh_alarm_table()
-
+            now_str = datetime.now().strftime("%H:%M:%S")
+            self.filter_bar.lbl_update_time.setText(f"Updated: {now_str}")
         except Exception as e:
-            logger.error("Failed to refresh historical analysis data: %s", e, exc_info=True)
+            logger.error("Error updating historical page views: %s", e, exc_info=True)
+
+    def _on_worker_error(self, err_msg: str) -> None:
+        logger.error("Historical query worker failed: %s", err_msg)
+        self.filter_bar.lbl_update_time.setText("Query Error")
 
     def _refresh_alarm_table(self) -> None:
         """Fetch alarm records with current severity and station filters."""
@@ -350,3 +446,30 @@ class HistoricalPage(QWidget):
         except Exception as e:
             logger.error("Failed to export historical dataset: %s", e, exc_info=True)
             self.filter_bar.lbl_update_time.setText("Export Failed")
+
+    def _refresh_alarm_table(self) -> None:
+        """Fetch alarm records with current severity and station filters."""
+        try:
+            preset = self._current_preset
+            s_date = self._current_start_date or None
+            e_date = self._current_end_date or None
+            station_id = self._current_station_id
+            station_names = self.data_manager.kpi_engine.station_display_names
+
+            alarms = self.query_service.get_alarm_history_table(
+                preset=preset,
+                start_date=s_date,
+                end_date=e_date,
+                station_id=station_id,
+                severity=self._current_severity,
+                station_display_names=station_names,
+                limit=500,
+            )
+            self.tables_card.update_alarm_data(alarms)
+        except Exception as e:
+            logger.error("Failed to query alarm history table: %s", e, exc_info=True)
+
+    def stop(self) -> None:
+        """Safely stop and wait for background query worker if running."""
+        if self._worker and self._worker.isRunning():
+            self._worker.wait(1000)

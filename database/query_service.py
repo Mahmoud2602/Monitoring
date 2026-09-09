@@ -414,6 +414,83 @@ class HistoricalQueryService:
         avg_stop_sec = round(float(dt_row["avg_duration"]), 2) if dt_row else 0.0
         longest_stop_sec = round(float(dt_row["longest_stop"]), 2) if dt_row else 0.0
 
+        # 3. Best and Worst Hour Calculations
+        best_hour_sql = """
+        SELECT hour_start, hour_end, actual_production, hourly_target, hourly_achievement_percent, production_date
+        FROM production_data
+        WHERE production_date >= ? AND production_date <= ?
+        ORDER BY actual_production DESC, id ASC
+        LIMIT 1;
+        """
+        worst_hour_sql = """
+        SELECT hour_start, hour_end, actual_production, hourly_target, hourly_achievement_percent, production_date
+        FROM production_data
+        WHERE production_date >= ? AND production_date <= ?
+        ORDER BY actual_production ASC, id ASC
+        LIMIT 1;
+        """
+        with self.db.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(best_hour_sql, (s_date, e_date))
+            best_row = cur.fetchone()
+            cur.execute(worst_hour_sql, (s_date, e_date))
+            worst_row = cur.fetchone()
+            cur.close()
+
+        best_hour = None
+        best_hour_str = "--"
+        if best_row and best_row["actual_production"] is not None:
+            best_prod = int(best_row["actual_production"])
+            best_h_start = str(best_row["hour_start"])
+            best_h_end = str(best_row["hour_end"])
+            best_hour = {
+                "hour_start": best_h_start,
+                "hour_end": best_h_end,
+                "production": best_prod,
+                "target": float(best_row["hourly_target"]),
+                "achievement_percent": float(best_row["hourly_achievement_percent"]),
+                "date": str(best_row["production_date"]),
+            }
+            best_hour_str = f"{best_h_start} ({best_prod} pcs)"
+
+        worst_hour = None
+        worst_hour_str = "--"
+        if worst_row and worst_row["actual_production"] is not None:
+            worst_prod = int(worst_row["actual_production"])
+            worst_h_start = str(worst_row["hour_start"])
+            worst_h_end = str(worst_row["hour_end"])
+            worst_hour = {
+                "hour_start": worst_h_start,
+                "hour_end": worst_h_end,
+                "production": worst_prod,
+                "target": float(worst_row["hourly_target"]),
+                "achievement_percent": float(worst_row["hourly_achievement_percent"]),
+                "date": str(worst_row["production_date"]),
+            }
+            worst_hour_str = f"{worst_h_start} ({worst_prod} pcs)"
+
+        # 4. Running Time Calculation
+        hours_count = int(prod_row["hours_count"]) if prod_row else 0
+        if hours_count > 0:
+            operating_sec = hours_count * 3600.0
+            running_time_sec = max(0.0, operating_sec - total_dt_sec)
+        else:
+            # If checking current production day, use elapsed shift time
+            try:
+                now_dt = datetime.now()
+                curr_date = self.get_production_date(now_dt)
+                if s_date == curr_date and s_date == e_date:
+                    h_str, m_str = self.production_day_start.split(":")
+                    shift_start = now_dt.replace(hour=int(h_str), minute=int(m_str), second=0, microsecond=0)
+                    if now_dt < shift_start:
+                        shift_start -= timedelta(days=1)
+                    elapsed_sec = max(0.0, (now_dt - shift_start).total_seconds())
+                    running_time_sec = max(0.0, elapsed_sec - total_dt_sec)
+                else:
+                    running_time_sec = 0.0
+            except Exception:
+                running_time_sec = 0.0
+
         def _fmt_hms(sec: float) -> str:
             s = max(0, int(sec))
             h = s // 3600
@@ -440,6 +517,8 @@ class HistoricalQueryService:
             "achievement_percent": achieve_pct,
             "total_downtime_seconds": total_dt_sec,
             "total_downtime_str": _fmt_hms(total_dt_sec),
+            "running_time_seconds": round(running_time_sec, 2),
+            "running_time_str": _fmt_hms(running_time_sec),
             "total_stops": total_stops,
             "average_stop_seconds": avg_stop_sec,
             "average_stop_str": _fmt_compact(avg_stop_sec),
@@ -447,6 +526,10 @@ class HistoricalQueryService:
             "longest_stop_str": _fmt_compact(longest_stop_sec),
             "average_speed": avg_speed,
             "average_tact_time": avg_tact,
+            "best_hour": best_hour,
+            "best_hour_str": best_hour_str,
+            "worst_hour": worst_hour,
+            "worst_hour_str": worst_hour_str,
         }
 
     def get_production_trend(

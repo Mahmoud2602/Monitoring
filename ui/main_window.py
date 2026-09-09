@@ -211,4 +211,6 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow closing, stopping TelemetryBridge worker...")
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.stop()
+        if hasattr(self, "historical_page") and self.historical_page:
+            self.historical_page.stop()
         super().closeEvent(event)

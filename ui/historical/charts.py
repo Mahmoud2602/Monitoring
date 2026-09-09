@@ -422,3 +422,68 @@ class StationStopsChart(ChartCard):
         max_stops = int(np.max(stops)) if len(stops) else 0
         self.plot_widget.setYRange(0, max(max_stops * 1.25, 5))
         self.plot_widget.setXRange(-0.5, len(labels) - 0.5)
+
+
+class AchievementTrendChart(ChartCard):
+    """
+    Achievement Rate Trend Chart:
+    - Hourly / Daily Achievement % curve
+    - 100% Target Reference line (dashed cyan)
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(
+            title="Achievement Rate Trend",
+            subtitle="Actual vs 100% Target (%)",
+            parent=parent,
+        )
+        self.plot_widget.addLegend(offset=(10, 10), brush=pg.mkBrush("#111827cc"), pen=pg.mkPen(IndustrialTheme.BORDER_SUBTLE))
+        self.plot_widget.setLabel("left", "Achievement", units="%")
+        self.plot_widget.setLabel("bottom", "Time / Date")
+
+    def update_data(self, data_list: List[Dict[str, Any]]) -> None:
+        self.plot_widget.clear()
+        self.plot_widget.addLegend(offset=(10, 10), brush=pg.mkBrush("#111827cc"), pen=pg.mkPen(IndustrialTheme.BORDER_SUBTLE))
+        self.plot_widget.addItem(self.empty_text_item)
+
+        if not data_list:
+            self.show_empty_state(True)
+            return
+        self.show_empty_state(False)
+
+        x_indices = np.arange(len(data_list))
+        labels = [str(d.get("time_label", "")) for d in data_list]
+        achievements = np.array([float(d.get("achievement_percent", 0.0)) for d in data_list])
+        benchmark_100 = np.full_like(achievements, 100.0)
+
+        # Bottom axis ticks
+        ax_bottom = self.plot_widget.getAxis("bottom")
+        step = max(1, len(labels) // 12)
+        ticks = [(i, labels[i]) for i in range(0, len(labels), step)]
+        ax_bottom.setTicks([ticks])
+
+        # 1. 100% Benchmark reference line (dashed cyan)
+        bench_pen = pg.mkPen(color="#38bdf8", width=1.5, style=Qt.PenStyle.DashLine)
+        self.plot_widget.plot(
+            x_indices,
+            benchmark_100,
+            pen=bench_pen,
+            name="100% Target Benchmark",
+        )
+
+        # 2. Achievement % plot line (vibrant emerald green with symbols)
+        achieve_pen = pg.mkPen(color="#22c55e", width=2.5)
+        self.plot_widget.plot(
+            x_indices,
+            achievements,
+            pen=achieve_pen,
+            symbol="o",
+            symbolSize=6,
+            symbolBrush="#22c55e",
+            name="Achievement Rate (%)",
+        )
+
+        max_val = float(np.max(achievements)) if len(achievements) else 100.0
+        self.plot_widget.setYRange(0, max(max_val * 1.2, 120.0))
+        self.plot_widget.setXRange(-0.5, len(labels) - 0.5)
+

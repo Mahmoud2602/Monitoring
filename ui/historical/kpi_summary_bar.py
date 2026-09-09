@@ -121,7 +121,7 @@ class KPISummaryBar(QFrame):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
 
-        # Row 0: Production metrics (3 cards)
+        # Row 0: Production & Operating Time (4 cards)
         self.card_actual = HistoricalKPICard(
             title="Total Production",
             initial_value="0",
@@ -143,10 +143,18 @@ class KPISummaryBar(QFrame):
             accent_color=IndustrialTheme.COLOR_GREEN,
             parent=self,
         )
+        self.card_running_time = HistoricalKPICard(
+            title="Running Time",
+            initial_value="00:00:00",
+            unit="h:m:s",
+            accent_color=IndustrialTheme.COLOR_GREEN,
+            parent=self,
+        )
 
         grid.addWidget(self.card_actual, 0, 0)
         grid.addWidget(self.card_target, 0, 1)
         grid.addWidget(self.card_achievement, 0, 2)
+        grid.addWidget(self.card_running_time, 0, 3)
 
         # Row 1: Downtime & Reliability (4 cards)
         self.card_downtime = HistoricalKPICard(
@@ -178,12 +186,12 @@ class KPISummaryBar(QFrame):
             parent=self,
         )
 
-        grid.addWidget(self.card_downtime, 0, 3)
-        grid.addWidget(self.card_stops, 0, 4)
-        grid.addWidget(self.card_avg_stop, 1, 0)
-        grid.addWidget(self.card_longest_stop, 1, 1)
+        grid.addWidget(self.card_downtime, 1, 0)
+        grid.addWidget(self.card_stops, 1, 1)
+        grid.addWidget(self.card_avg_stop, 1, 2)
+        grid.addWidget(self.card_longest_stop, 1, 3)
 
-        # Row 2: Speed & Tact (2 cards)
+        # Row 2: Speed, Tact & Shift Extremes (4 cards)
         self.card_avg_speed = HistoricalKPICard(
             title="Average Speed",
             initial_value="0.0",
@@ -198,42 +206,43 @@ class KPISummaryBar(QFrame):
             accent_color=IndustrialTheme.TEXT_PRIMARY,
             parent=self,
         )
+        self.card_best_hour = HistoricalKPICard(
+            title="Best Hour",
+            initial_value="--",
+            unit="",
+            accent_color=IndustrialTheme.COLOR_GREEN,
+            parent=self,
+        )
+        self.card_worst_hour = HistoricalKPICard(
+            title="Worst Hour",
+            initial_value="--",
+            unit="",
+            accent_color=IndustrialTheme.COLOR_RED,
+            parent=self,
+        )
 
-        grid.addWidget(self.card_avg_speed, 1, 2)
-        grid.addWidget(self.card_avg_tact, 1, 3)
+        grid.addWidget(self.card_avg_speed, 2, 0)
+        grid.addWidget(self.card_avg_tact, 2, 1)
+        grid.addWidget(self.card_best_hour, 2, 2)
+        grid.addWidget(self.card_worst_hour, 2, 3)
 
-        # Add a stretch placeholder in 1, 4 to align grid nicely
-        placeholder = QFrame(self)
-        placeholder.setStyleSheet(f"""
-            QFrame {{
-                background-color: {IndustrialTheme.BG_PANEL};
-                border: 1px dashed {IndustrialTheme.BORDER_SUBTLE};
-                border-radius: 8px;
-            }}
-        """)
-        lbl_info = QLabel("HISTORICAL AUDIT", placeholder)
-        lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_info.setStyleSheet(f"""
-            color: {IndustrialTheme.TEXT_MUTED};
-            font-size: 11px;
-            font-weight: bold;
-            letter-spacing: 1px;
-        """)
-        p_layout = QVBoxLayout(placeholder)
-        p_layout.addWidget(lbl_info)
-        grid.addWidget(placeholder, 1, 4)
+        for c in range(4):
+            grid.setColumnStretch(c, 1)
 
     def update_metrics(self, summary: Dict[str, Any]) -> None:
         """Populate cards with resolved historical summary data."""
         actual = summary.get("total_production", 0)
         target = summary.get("total_target", 0.0)
         achieve = summary.get("achievement_percent", 0.0)
+        running_time_str = summary.get("running_time_str", "00:00:00")
         dt_str = summary.get("total_downtime_str", "00:00:00")
         stops = summary.get("total_stops", 0)
         avg_stop = summary.get("average_stop_str", "0s")
         longest_stop = summary.get("longest_stop_str", "0s")
         speed = summary.get("average_speed", 0.0)
         tact = summary.get("average_tact_time", 0.0)
+        best_hour_str = summary.get("best_hour_str", "--")
+        worst_hour_str = summary.get("worst_hour_str", "--")
 
         self.card_actual.set_value(f"{actual:,}")
         self.card_target.set_value(f"{int(target):,}")
@@ -249,9 +258,12 @@ class KPISummaryBar(QFrame):
             achieve_color = IndustrialTheme.COLOR_RED
         self.card_achievement.set_value(f"{achieve:.1f}%", achieve_color)
 
+        self.card_running_time.set_value(running_time_str)
         self.card_downtime.set_value(dt_str)
         self.card_stops.set_value(str(stops))
         self.card_avg_stop.set_value(avg_stop)
         self.card_longest_stop.set_value(longest_stop)
         self.card_avg_speed.set_value(f"{speed:.1f}")
         self.card_avg_tact.set_value(f"{tact:.1f}")
+        self.card_best_hour.set_value(best_hour_str)
+        self.card_worst_hour.set_value(worst_hour_str)
