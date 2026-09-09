@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QApplication
@@ -466,6 +466,117 @@ class TestPhase5HistoricalAnalysis(unittest.TestCase):
 
         win.close()
         dm.stop()
+
+    def test_14_all_date_presets_resolution(self) -> None:
+        """Verify that all 6 date filter presets resolve and query cleanly."""
+        ref_time = datetime(2026, 9, 7, 12, 0, 0, tzinfo=timezone.utc)
+        presets = [
+            DatePreset.TODAY,
+            DatePreset.YESTERDAY,
+            DatePreset.LAST_7_DAYS,
+            DatePreset.LAST_30_DAYS,
+            DatePreset.LAST_3_MONTHS,
+            DatePreset.CUSTOM,
+        ]
+        for p in presets:
+            start_d, end_d = self.query_service.resolve_date_range(
+                preset=p,
+                start_date="2026-09-01",
+                end_date="2026-09-07",
+                reference_time=ref_time,
+            )
+            self.assertTrue(len(start_d) == 10 and "-" in start_d)
+            self.assertTrue(len(end_d) == 10 and "-" in end_d)
+            self.assertTrue(start_d <= end_d)
+            # Execute summary query for each preset
+            summary = self.query_service.get_historical_summary(
+                preset=p,
+                start_date="2026-09-01",
+                end_date="2026-09-07",
+            )
+            self.assertIn("total_production", summary)
+            self.assertIn("achievement_percent", summary)
+
+    def test_15_empty_and_no_data_periods(self) -> None:
+        """Verify queries on periods with no production or downtime data return clean zeros without NaN or crash."""
+        summary = self.query_service.get_historical_summary(
+            preset=DatePreset.CUSTOM,
+            start_date="2020-01-01",
+            end_date="2020-01-02",
+        )
+        self.assertEqual(summary["total_production"], 0)
+        self.assertEqual(summary["total_target"], 0.0)
+        self.assertEqual(summary["achievement_percent"], 0.0)
+        self.assertEqual(summary["total_stops"], 0)
+        self.assertEqual(summary["total_downtime_seconds"], 0.0)
+        self.assertEqual(summary["average_speed"], 0.0)
+
+        trend = self.query_service.get_production_trend(
+            preset=DatePreset.CUSTOM,
+            start_date="2020-01-01",
+            end_date="2020-01-02",
+        )
+        self.assertEqual(len(trend), 0)
+
+        dt_table = self.query_service.get_downtime_history_table(
+            preset=DatePreset.CUSTOM,
+            start_date="2020-01-01",
+            end_date="2020-01-02",
+        )
+        self.assertEqual(len(dt_table), 0)
+
+    def test_16_open_downtime_event_handling(self) -> None:
+        """Verify that open/ongoing downtime events (end_time IS NULL) are handled gracefully."""
+        # Insert an active/open downtime event
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO downtime_events (
+                    station_id, station_name, start_time, end_time, duration_seconds,
+                    alarm_id, alarm_message, production_date
+                ) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)
+            """, (5, "Station 5", "2026-09-07T12:00:00Z", "ALM_OPEN_01", "Open Jam Event", "2026-09-07"))
+            cursor.close()
+
+        # Query downtime history table
+        dt_table = self.query_service.get_downtime_history_table(
+            preset=DatePreset.CUSTOM,
+            start_date="2026-09-07",
+            end_date="2026-09-07",
+        )
+        # Find the open event
+        open_events = [e for e in dt_table if e["alarm_id"] == "ALM_OPEN_01"]
+        self.assertEqual(len(open_events), 1)
+        self.assertEqual(open_events[0]["end_time"], "ONGOING")
+        self.assertEqual(open_events[0]["duration_str"], "ACTIVE")
+
+    def test_17_large_date_range_aggregation(self) -> None:
+        """Verify that large multi-month date ranges aggregate cleanly without timeouts."""
+        summary = self.query_service.get_historical_summary(
+            preset=DatePreset.CUSTOM,
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+        )
+        self.assertGreater(summary["total_production"], 0)
+        self.assertGreater(summary["total_target"], 0.0)
+
+    def test_18_production_day_boundary_alignment(self) -> None:
+        """Verify that records across the 08:00 production day boundary map to correct dates."""
+        # Query specifically for 2026-09-06
+        s06 = self.query_service.get_historical_summary(
+            preset=DatePreset.CUSTOM,
+            start_date="2026-09-06",
+            end_date="2026-09-06",
+        )
+        self.assertEqual(s06["total_production"], 8 * 95)  # 760 pcs
+
+        # Query specifically for 2026-09-07
+        s07 = self.query_service.get_historical_summary(
+            preset=DatePreset.CUSTOM,
+            start_date="2026-09-07",
+            end_date="2026-09-07",
+        )
+        self.assertEqual(s07["total_production"], 4 * 88)  # 352 pcs
 
 
 if __name__ == "__main__":

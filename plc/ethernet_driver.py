@@ -25,14 +25,22 @@ logger = get_logger("plc.ethernet_driver")
 
 class EthernetPLCDriver(BasePLCDriver):
     """
-    Production-grade Ethernet PLC Driver implementing standard Modbus TCP
-    over raw TCP sockets, fully conforming to BasePLCDriver.
+    Production-grade Generic Ethernet PLC Driver implementing standard Modbus TCP
+    (RFC 793 / Modbus Application Protocol V1.1b3) over raw TCP sockets, fully
+    conforming to the BasePLCDriver interface contract.
     
-    Supports:
-    - Discrete contact bit reads (M550..M559 -> coils or discrete inputs)
-    - Holding register reads (D450..D453 -> holding registers 40001+)
-    - Configurable host, port, timeout, and unit ID
-    - Robust timeout handling and socket lifecycle
+    Protocol Support & Industrial Compatibility:
+    - Implements standard Modbus TCP framing:
+      [Transaction ID: 2B | Protocol ID: 2B | Length: 2B | Unit ID: 1B | Function Code: 1B | Data: N-Bytes]
+    - Function Code 0x01 / 0x02: Read Coils / Discrete Inputs (for station status bits)
+    - Function Code 0x03 / 0x04: Read Holding Registers / Input Registers (for speed & counters)
+    - Fully generic across standard industrial Ethernet PLCs (Schneider Modicon, WAGO,
+      Delta DVP/AS via Ethernet module with standard Modbus TCP mapping, Siemens S7 via Modbus TCP server block, etc.).
+    - Note on Delta PLCs: Delta PLCs support Modbus TCP natively on Ethernet ports or via DVPEN01/IFD9506,
+      where registers (e.g. D450) and internal contacts (e.g. M550) map directly to Modbus 4x and 0x/1x address spaces.
+      For proprietary Delta protocols (Delta ASCII/RTU or Delta Direct Communication Protocol), use a dedicated
+      Delta protocol gateway or configure appropriate register/bit offsets via driver_params.
+    - Zero external dependencies: uses Python standard library `socket`, `struct`, and `select`.
     """
 
     def __init__(

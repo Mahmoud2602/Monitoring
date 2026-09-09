@@ -179,17 +179,17 @@ class DashboardPage(QWidget):
             stopped_names = [s.display_name for s in kpi.stopped_stations]
             self.line_status_banner.set_stopped(stopped_names)
 
-        # 2. Production Card
-        curr_prod = kpi.production_counter_raw
+        # 2. Production Card (Authoritative daily production accumulated during current production day)
+        daily_prod = kpi.daily_production
         daily_tgt = kpi.daily_target
-        rem_tgt = max(0, daily_tgt - curr_prod)
-        pct = (curr_prod / daily_tgt * 100.0) if daily_tgt > 0 else 0.0
+        rem_tgt = max(0, daily_tgt - daily_prod)
+        pct = kpi.daily_achievement_percent
 
         self.card_production.set_value(
-            value_str=f"{curr_prod:,}",
-            details=f"Target: {daily_tgt:,} pcs • Remaining: {rem_tgt:,} pcs",
+            value_str=f"{daily_prod:,}",
+            details=f"Target: {daily_tgt:,} pcs • Remaining: {rem_tgt:,} pcs (Raw D452: {kpi.production_counter_raw:,})",
             tag=f"{pct:.1f}%",
-            progress_pct=pct,
+            progress_pct=min(100.0, pct),
         )
 
         # 3. Speed Card

@@ -255,13 +255,16 @@ class TestFullDashboardIntegration(unittest.TestCase):
             production_counter_raw=1280,
             daily_target=1000,
             engineering_speed=44.0,
+            daily_production=190,
+            daily_achievement_percent=19.0,
         )
 
         self.win.dashboard_page.update_kpi(kpi)
         _app.processEvents()
 
-        # Verify Production Card
-        self.assertEqual(self.win.dashboard_page.card_production.lbl_value.text(), "1,280")
+        # Verify Production Card (Displays authoritative accumulated daily production, with raw D452 in details)
+        self.assertEqual(self.win.dashboard_page.card_production.lbl_value.text(), "190")
+        self.assertIn("Raw D452: 1,280", self.win.dashboard_page.card_production.lbl_details.text())
         # Verify Speed Card
         self.assertEqual(self.win.dashboard_page.card_speed.lbl_value.text(), "44.0")
         # Verify Tact Time Card
