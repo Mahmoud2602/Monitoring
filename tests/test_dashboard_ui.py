@@ -217,7 +217,6 @@ class TestFullDashboardIntegration(unittest.TestCase):
             mapping_path="config/plc_mapping.json",
             db_path=":memory:",
         )
-        self.dm.start()
         self.win = MainWindow(data_manager=self.dm, config=self.dm.settings)
         self.win.show()
         _app.processEvents()

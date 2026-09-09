@@ -62,6 +62,29 @@ class SimulatedPLCDriver(BasePLCDriver):
         # Simulated failure injection hook for unit tests
         self.force_connection_failure: bool = False
         self.force_read_error: bool = False
+        self._forced_stops: set = set()
+
+    def force_station_stop(self, station_id: int, duration_cycles: int = 9999) -> None:
+        """Manually force a specific station (1..10) into a stopped fault state."""
+        idx = max(1, min(10, station_id)) - 1
+        addr = self._station_addresses[idx]
+        self._forced_stops.add(addr)
+        self._station_status[addr] = False
+        self._station_stop_countdown[addr] = duration_cycles
+        logger.warning("SIMULATOR: Manually forced Station %d (%s) STOPPED.", station_id, addr)
+
+    def force_multiple_stops(self, station_ids: List[int], duration_cycles: int = 9999) -> None:
+        """Manually force multiple stations into stopped fault states simultaneously."""
+        for sid in station_ids:
+            self.force_station_stop(sid, duration_cycles)
+
+    def clear_forced_stops(self) -> None:
+        """Clear all manual stoppage overrides and restore healthy running statuses."""
+        self._forced_stops.clear()
+        for addr in self._station_addresses:
+            self._station_status[addr] = True
+            self._station_stop_countdown[addr] = 0
+        logger.info("SIMULATOR: All forced stoppages cleared. Normal operation resumed.")
 
     @property
     def is_connected(self) -> bool:
@@ -95,6 +118,11 @@ class SimulatedPLCDriver(BasePLCDriver):
         # 1. Update station stop states
         any_station_stopped = False
         for addr in self._station_addresses:
+            if addr in self._forced_stops:
+                self._station_status[addr] = False
+                any_station_stopped = True
+                continue
+
             if self._station_stop_countdown[addr] > 0:
                 self._station_stop_countdown[addr] -= 1
                 if self._station_stop_countdown[addr] == 0:

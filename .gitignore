@@ -1,8 +1,28 @@
-node_modules/
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Databases & Backups
+*.db
+*.db-journal
+*.sqlite3
+exports/
+backups/
+logs/
+
+# Build & Distribution
 build/
 dist/
+*.egg-info/
+
+# Web / Node
+node_modules/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+

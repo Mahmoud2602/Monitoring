@@ -236,6 +236,33 @@ class DatabaseManager:
             logger.error("Database structure validation encountered an error: %s", exc)
             return False
 
+    def backup(self, destination_path: Optional[str] = None) -> str:
+        """
+        Create a live point-in-time snapshot backup of the SQLite database
+        without locking out concurrent readers or writers.
+        """
+        import os
+        from datetime import datetime
+
+        if not destination_path:
+            os.makedirs("backups", exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            destination_path = f"backups/production_monitor_backup_{ts}.db"
+        else:
+            dest_dir = os.path.dirname(destination_path)
+            if dest_dir:
+                os.makedirs(dest_dir, exist_ok=True)
+
+        with self.get_connection() as src_conn:
+            dest_conn = sqlite3.connect(destination_path)
+            try:
+                src_conn.backup(dest_conn)
+            finally:
+                dest_conn.close()
+
+        logger.info("Database successfully backed up to: %s", destination_path)
+        return destination_path
+
     def close(self) -> None:
         """Close persistent resources if open."""
         with self._lock:
@@ -245,3 +272,4 @@ class DatabaseManager:
                 except Exception:
                     pass
                 self._persistent_mem_conn = None
+
